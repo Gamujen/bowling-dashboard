@@ -29,6 +29,10 @@ export default function FrontDeskDashboard() {
   const [alertMode, setAlertMode] = useState("Call2Back");
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [adminAlert, setAdminAlert] = useState(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [pendingCancelAlert, setPendingCancelAlert] = useState(null);
+
 
   // Group matches by game
   const groupedMatches = { 1: [], 2: [], 3: [] };
@@ -193,17 +197,20 @@ export default function FrontDeskDashboard() {
       await addDoc(collection(db, "alerts"), {
         type: alertType,
         lane: Number(alertLane),
-
         lanePair: alertLanePair
-          ? alertLanePair
-              .split(",")
-              .map((n) => Number(n.trim()))
+          ? alertLanePair.split(",").map((n) => Number(n.trim()))
           : null,
 
         message: alertMessage,
         mode: alertMode,
+
         status: "active",
+
+        // NEW FIELDS (add these)
+        cancelReason: null,
         createdAt: serverTimestamp(),
+        updatedAt: null,
+        cancelledAt: null,
       });
 
       // Reset form
@@ -220,15 +227,21 @@ export default function FrontDeskDashboard() {
     }
   }
 
-  async function updateAlertStatus(alertId, status) {
+  async function updateAlertStatus(alertId, status, reason = null) {
     try {
-      await updateDoc(doc(db, "alerts", alertId), {
+      const updateData = {
         status,
         updatedAt: serverTimestamp(),
-      });
+      };
+
+      if (status === "cancelled") {
+        updateData.cancelReason = reason;
+        updateData.cancelledAt = serverTimestamp();
+      }
+
+      await updateDoc(doc(db, "alerts", alertId), updateData);
 
       setSelectedAlert(null);
-
     } catch (err) {
       console.error("Error updating alert:", err);
     }
@@ -375,13 +388,8 @@ export default function FrontDeskDashboard() {
 
                       // RIGHT SWIPE LOGIC (delete flow)
                       if (x > 120) {
-                        const confirmDelete = window.confirm(
-                          "Delete this alert?"
-                        );
-
-                        if (confirmDelete) {
-                          updateAlertStatus(alert.id, "cancelled");
-                        }
+                        setPendingCancelAlert(alert);
+                        setShowCancelModal(true);
                       }
                     }}
                     onClick={() =>
@@ -626,6 +634,57 @@ export default function FrontDeskDashboard() {
             </div>
           </>
         )}
+
+      {showCancelModal && pendingCancelAlert && (
+        <>
+          <div
+            className="modal-overlay"
+            onClick={() => setShowCancelModal(false)}
+          />
+
+          <div className="alert-modal">
+            <h3>Cancel Alert</h3>
+
+            <p>Why is this being cancelled?</p>
+
+            <select
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+            >
+              <option value="">Select reason</option>
+              <option value="Duplicate">Duplicate</option>
+              <option value="Fixed already">Fixed already</option>
+              <option value="Created by mistake">Created by mistake</option>
+              <option value="Not needed">Not needed</option>
+              <option value="Other">Other</option>
+            </select>
+
+            <div style={{ marginTop: 16 }}>
+              <button onClick={() => setShowCancelModal(false)}>
+                Back
+              </button>
+
+              <button
+                style={{ marginLeft: 10 }}
+                onClick={() => {
+                  updateAlertStatus(
+                    pendingCancelAlert.id,
+                    "cancelled",
+                    cancelReason
+                  );
+
+                  setShowCancelModal(false);
+                  setPendingCancelAlert(null);
+                  setCancelReason("");
+                }}
+              >
+                Confirm Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
     </>
   );
 }
